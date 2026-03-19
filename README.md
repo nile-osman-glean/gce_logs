@@ -2,11 +2,13 @@
 
 Small local Python script to export **Motive Insights** data day-by-day and combine results into a single CSV with an explicit `date` column.
 
-**Why:** The dashboard "Download report" does not include date/time, so you cannot easily get per-day breakdowns. This script loops over a date range, calls the same backend (e.g. `/rest/api/v1/insights`), and writes one CSV with a `date` column for each day.
+**Why:** The dashboard "Download report" does not include date/time, so you cannot easily get per-day breakdowns. This script loops over a date range, calls the download-insights API (e.g. `/api/v1/downloadinsights`), and writes one CSV with a `date` column for each day.
 
 ---
 
 ## Setup
+
+**1. Create a virtual environment and install dependencies:**
 
 ```bash
 python3 -m venv .venv
@@ -14,11 +16,22 @@ source .venv/bin/activate   # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Copy the example env file and fill in your values:
+**2. Create a `.env` file** in the project root with your credentials and options (see [Environment variables](#environment-variables) below). Example:
 
 ```bash
-cp .env.example .env
-# Edit .env with your GLEAN_BASE_URL, GLEAN_COOKIE, GLEAN_ACTAS_EMAIL, START_DATE, END_DATE, etc.
+# Required
+GLEAN_BASE_URL=https://<your-motive>-be.glean.com
+GLEAN_COOKIE=<paste full Cookie header from browser>
+GLEAN_ACTAS_EMAIL=user@customer.com
+
+# Optional: if your setup uses an ActAs token
+# GLEAN_ACTAS_TOKEN=<token>
+
+# Optional: output path, throttling, timeouts
+# OUT_CSV=motive_insights_daily.csv
+# SLEEP_SECS=0.3
+# TIMEOUT_SECS=60
+# MAX_RETRIES=3
 ```
 
 **Security:** Do not paste cookies or tokens into code. Keep all secrets in `.env` (gitignored). The script does not log cookies or tokens.
@@ -27,74 +40,54 @@ cp .env.example .env
 
 ## How to run
 
-From the project root:
+From the project root (with the venv activated):
 
 ```bash
 .venv/bin/python src/export_daily_insights.py
 ```
 
-(If `python` is aliased to a system interpreter, use `.venv/bin/python` so the venv’s dependencies are used.)
-
-Output goes to the path set in `OUT_CSV` (default: `motive_users_daily.csv`).
-
-### Automated timeline export
-
-**First N days of current month:**
+If your shell already has the venv activated (`source .venv/bin/activate`), you can use:
 
 ```bash
-.venv/bin/python src/export_daily_insights.py --days 5
+python src/export_daily_insights.py
 ```
 
-This exports **day 01 through day N of the current month** (e.g. if today is the 6th, `--days 5` gives 01, 02, 03, 04, 05). One API request per day, all rows appended to one CSV with a `date` column. Never goes past today. Rows with no activity (all zeros) are excluded.
+Output is written to the path in `OUT_CSV` (default: `motive_insights_daily.csv`).
 
-**Single day (one request, one day’s rows):**
+### Options
 
-```bash
-.venv/bin/python src/export_daily_insights.py --single
-```
+| Mode | Command |
+|------|--------|
+| **Single day (default: today)** | `python src/export_daily_insights.py` |
+| **Specific day** | `python src/export_daily_insights.py --date 2026-03-15` |
+| **Last N days (including today)** | `python src/export_daily_insights.py --days 5` |
+| **Custom date range** | `python src/export_daily_insights.py --start 2026-01-01 --end 2026-02-28` |
 
-Uses `START_DATE` from `.env` only; one request, one day of data.
-
-**Custom date range:**
-
-```bash
-.venv/bin/python src/export_daily_insights.py --start 2026-01-01 --end 2026-02-28
-```
-
-Exports every day from `--start` through `--end` (inclusive). One request per day, all appended to one CSV. You must pass both `--start` and `--end`.
-
-**Default: one day = today (run once)**  
-With no flags, the script runs **once** for **today** (one request). Use `--date YYYY-MM-DD` for a specific single day, `--days N` for first N days of the month, or `--start` / `--end` for a custom range.
-
----
-
-## Obtaining the request payload
-
-The script uses a **request body template** that must match what the Insights "Download report" uses:
-
-1. Open Chrome DevTools → **Network**.
-2. In the Motive Insights UI, click **Download report** (or trigger the same request).
-3. Find the request to the insights API (e.g. `insights` or `/rest/api/v1/insights`).
-4. Right‑click the request → **Copy** → **Copy as cURL**.
-5. From the cURL command, copy the **JSON body** (the part after `-d '...'` or `--data-raw '...'`).
-6. Paste that JSON into `REQUEST_BODY_TEMPLATE` in `src/export_daily_insights.py`.
-
-The script will overwrite `overviewRequest.dayRange` for each day (UTC 00:00:00–23:59:59), so you only need to ensure the rest of the body (filters, etc.) matches. The day range is set under `overviewRequest.dayRange` to match the newer Insights overview behavior.
+- With no flags, the script runs **once for today** (one request).
+- `--days N`: exports the last N days including today; one request per day, all appended to one CSV.
+- `--start` and `--end`: must be used together; exports every day in that range (inclusive).
+- Rows with no activity (all zeros in the activity columns) are excluded from the output.
 
 ---
 
 ## Environment variables
 
-| Variable | Description |
-|----------|-------------|
-| `GLEAN_BASE_URL` | Backend base URL (e.g. `https://<motive>-be.glean.com`). |
-| `GLEAN_ENDPOINT` | API path (default: `/rest/api/v1/insights`). |
-| `GLEAN_COOKIE` | Full Cookie header string from the browser. |
-| `GLEAN_ACTAS_EMAIL` | Customer user email for `X-Glean-ActAs`. |
-| `START_DATE` | Start of range, `YYYY-MM-DD`. |
-| `END_DATE` | End of range (inclusive), `YYYY-MM-DD`. |
-| `OUT_CSV` | Output CSV path (default: `motive_insights_daily.csv`). |
-| `SLEEP_SECS` | Seconds to sleep between day requests (default: `0.3`). |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GLEAN_BASE_URL` | Yes | Backend base URL (e.g. `https://<motive>-be.glean.com`). |
+| `GLEAN_COOKIE` | Yes | Full Cookie header string from the browser. |
+| `GLEAN_ACTAS_EMAIL` or `ACT_AS_EMAIL` | Yes | Customer user email for ActAs. |
+| `GLEAN_ACTAS_TOKEN` or `ACTAS_TOKEN` | No | If your setup uses an ActAs token, it is appended to the cookie. |
+| `GLEAN_ENDPOINT` | No | API path (default: `/api/v1/downloadinsights`). |
+| `OUT_CSV` | No | Output CSV path (default: `motive_insights_daily.csv`). |
+| `SLEEP_SECS` | No | Seconds between day requests (default: `0.3`). |
+| `TIMEOUT_SECS` | No | Request timeout in seconds (default: `60`). |
+| `MAX_RETRIES` | No | Retries for 429/5xx (default: `3`). |
+| `LOCALE` | No | Locale for the API (default: `en`). |
+| `CLIENT_VERSION` | No | Optional client version query param. |
+| `CATEGORIES_JSON` | No | JSON array of categories (default: `["USERS"]`). |
+| `DEPARTMENTS_JSON` | No | JSON array of department filters (default: `[]`). |
+| `ORIGIN`, `REFERER`, `USER_AGENT` | No | Override request headers if needed. |
 
 ---
 
@@ -104,11 +97,12 @@ The script will overwrite `overviewRequest.dayRange` for each day (UTC 00:00:00�
 - `name`, `email`, `department`, `title`, `manager`  
 - `days_active_in_period`, `searches_in_period`, `assistant_actions_in_period`, `agent_runs_in_period`, `active_client_sessions_in_period`
 
-Missing values are written as empty string or `0` as appropriate.
+Missing values are written as empty string or `0` as appropriate. Rows with no activity in the period are omitted.
 
 ---
 
 ## Notes
 
 - **Dashboard export vs this script:** The built-in dashboard export does not include date/time, so you cannot tell which day each row refers to. This script adds an explicit `date` column by requesting one day at a time and tagging each row.
-- No repo is required; this is a local, one-off style project. Use `.gitignore` and `.env.example` as provided if you ever version it.
+- The script uses POST requests with retries and exponential backoff for 429 and 5xx responses.
+- No repo is required; this is a local, one-off style project. Use `.gitignore` and keep secrets in `.env` if you version it.

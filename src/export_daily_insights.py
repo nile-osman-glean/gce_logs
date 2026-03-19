@@ -5,7 +5,7 @@ import io
 import json
 import os
 import time
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import urlencode, urljoin
 
 import requests
 from dotenv import load_dotenv
@@ -93,12 +93,10 @@ def _row_has_activity(row: list[str], activity_cols: int = 5) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Export Motive Insights day-by-day to one CSV.")
-    parser.add_argument("--debug", action="store_true", help="Print request URL/headers/body (secrets redacted) and exit.")
-    parser.add_argument("--single", action="store_true", help="One request only (same as default).")
-    parser.add_argument("--days", type=int, metavar="N", help="Export first N days of current month (01..N, not past today).")
+    parser.add_argument("--days", type=int, metavar="N", help="Export last N days (including today).")
     parser.add_argument("--start", type=str, metavar="YYYY-MM-DD", help="Start of range (use with --end).")
     parser.add_argument("--end", type=str, metavar="YYYY-MM-DD", help="End of range (use with --start).")
-    parser.add_argument("--date", type=str, metavar="YYYY-MM-DD", help="Export this single day (default when no flags: today).")
+    parser.add_argument("--date", type=str, metavar="YYYY-MM-DD", help="Export this single day (default: today).")
     args = parser.parse_args()
 
     load_dotenv()
@@ -118,11 +116,9 @@ def main() -> int:
     if args.days is not None:
         if args.days < 1:
             raise SystemExit("--days must be >= 1")
-        # First N days of current month (01, 02, ..., N), not past today
-        start_date = today_utc.replace(day=1)
-        last_day = min(args.days, today_utc.day)
-        end_date = start_date + dt.timedelta(days=last_day - 1)
-        print(f"Timeline: days 1–{last_day} of month ({start_date} to {end_date})", flush=True)
+        end_date = today_utc
+        start_date = end_date - dt.timedelta(days=args.days - 1)
+        print(f"Timeline: last {args.days} days ({start_date} to {end_date})", flush=True)
     elif args.start and args.end:
         start_date = parse_date(args.start.strip())
         end_date = parse_date(args.end.strip())
@@ -156,9 +152,7 @@ def main() -> int:
     departments = safe_json_loads(get_env("DEPARTMENTS_JSON", "[]"), [])
 
     if start_date > end_date:
-        raise SystemExit("START_DATE must be <= END_DATE")
-    if args.single:
-        end_date = start_date  # one day only, one request
+        raise SystemExit("Start date must be <= end date.")
 
     # Build URL
     params = {"actas": actas_email, "locale": locale}
@@ -186,39 +180,7 @@ def main() -> int:
         "priority": "u=1, i",
     }
 
-    # Always print request URL (actas redacted) so you can verify it matches the cURL
-    _parsed = urlparse(url)
-    _qs = parse_qs(_parsed.query)
-    if "actas" in _qs:
-        _qs["actas"] = ["<REDACTED>"]
-    _safe_query = urlencode([(k, v[0]) for k, v in _qs.items()], doseq=False)
-    _display_url = urlunparse((_parsed.scheme, _parsed.netloc, _parsed.path, _parsed.params, _safe_query, _parsed.fragment))
-    print("Request URL:", _display_url, flush=True)
-
     session = requests.Session()
-
-    # Debug: print request (secrets redacted) and exit
-    if args.debug:
-        parsed = urlparse(url)
-        qs = parse_qs(parsed.query)
-        if "actas" in qs:
-            qs["actas"] = ["<REDACTED>"]
-        redacted_query = urlencode([(k, v[0]) for k, v in qs.items()], doseq=False)
-        debug_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, redacted_query, parsed.fragment))
-        debug_headers = {k: ("<REDACTED>" if k.lower() == "cookie" else v) for k, v in headers.items()}
-        first_day = next(daterange_inclusive(start_date, end_date))
-        days_from_now = (today_utc - first_day).days
-        debug_body = {
-            "categories": categories,
-            "dayRange": {"start": {"daysFromNow": days_from_now}, "end": {"daysFromNow": days_from_now}},
-            "departments": departments,
-        }
-        print("--debug: request that would be sent (first day)", flush=True)
-        print("URL:", debug_url, flush=True)
-        print("Headers:", json.dumps(debug_headers, indent=2), flush=True)
-        print("Body:", json.dumps(debug_body, indent=2), flush=True)
-        return 0
-
     expected_header = None
     wrote_header = False
 
