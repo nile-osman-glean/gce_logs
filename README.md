@@ -20,7 +20,7 @@ pip install -r requirements.txt
 
 ```bash
 # Required
-GLEAN_BASE_URL=https://<your-motive>-be.glean.com
+GLEAN_BASE_URL=https://instance-be.glean.com
 GLEAN_COOKIE=<paste full Cookie header from browser>
 GLEAN_ACTAS_EMAIL=user@customer.com
 
